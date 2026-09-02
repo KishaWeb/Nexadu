@@ -1,23 +1,28 @@
 use std::{
     env,
-    fs::{self, OpenOptions},
-    io::Write,
-    path::{Path, PathBuf},
+    fs,
+    path::Path,
 };
-
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 3 {
-        println!("usage: lattice <init|view|version> <folder|id>");
+        println!("usage: lattice <init|view|version|history> <folder|id>");
         return;
     }
 
     match args[1].as_str() {
         "init" => init(Path::new(&args[2])),
-        "view" => view(&args[2]),
+        "view" => {
+            if args.len() == 3 {
+                view(&args[2], None);
+            } else {
+                view(&args[2], Some(&args[3]));
+            }
+        }
         "version" => version(&args[2]),
+        "history" => history(&args[2]),
         _ => println!("unknown command: {}", args[1]),
     }
 }
@@ -89,6 +94,7 @@ fn version(id: &str) {
     copy_directory(&current_dir, &version_dir);
 
     println!("created {} V{}", id, version_number);
+
     let metadata = fs::read_to_string(document_dir.join("metadata")).unwrap();
 
     let mut new_metadata = String::new();
@@ -105,8 +111,6 @@ fn version(id: &str) {
     new_metadata.push_str(&format!("version={}", version_number));
 
     fs::write(document_dir.join("metadata"), new_metadata).unwrap();
-
-
 }
 
 fn copy_directory(source: &Path, destination: &Path) {
@@ -125,7 +129,7 @@ fn copy_directory(source: &Path, destination: &Path) {
     }
 }
 
-fn view(id: &str) {
+fn view(id: &str, version: Option<&str>) {
     let home = dirs::home_dir().unwrap();
 
     let document_dir = home
@@ -133,17 +137,35 @@ fn view(id: &str) {
         .join("documents")
         .join(id);
 
-    let current_dir = document_dir.join("current");
-
     if !document_dir.is_dir() {
         println!("document not found: {}", id);
         return;
     }
 
+    let view_dir = match version {
+        Some(version) => document_dir
+            .join("versions")
+            .join(version),
+
+        None => document_dir.join("current"),
+    };
+
+    if !view_dir.is_dir() {
+        println!("version not found: {}", version.unwrap());
+        return;
+    }
+
     println!("Document: {}", id);
+
+    if let Some(version) = version {
+        println!("Version: {}", version);
+    } else {
+        println!("Current");
+    }
+
     println!();
 
-    print_directory(&current_dir, "");
+    print_directory(&view_dir, "");
 }
 
 fn print_directory(directory: &Path, indent: &str) {
@@ -166,6 +188,46 @@ fn print_directory(directory: &Path, indent: &str) {
             }
 
             println!();
+        }
+    }
+}
+
+fn history(id: &str) {
+    let home = dirs::home_dir().unwrap();
+
+    let document_dir = home
+        .join(".lattice")
+        .join("documents")
+        .join(id);
+
+    let versions_dir = document_dir.join("versions");
+
+    if !document_dir.is_dir() {
+        println!("document not found: {}", id);
+        return;
+    }
+
+    let mut versions = Vec::new();
+
+    for entry in fs::read_dir(&versions_dir).unwrap() {
+        let entry = entry.unwrap();
+
+        if entry.path().is_dir() {
+            versions.push(entry.file_name().to_string_lossy().to_string());
+        }
+    }
+
+    versions.sort();
+
+    for version in versions {
+        println!("{}", version);
+    }
+
+    let metadata = fs::read_to_string(document_dir.join("metadata")).unwrap();
+
+    for line in metadata.lines() {
+        if let Some(version) = line.strip_prefix("version=") {
+            println!("Current version: V{}", version);
         }
     }
 }
