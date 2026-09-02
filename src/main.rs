@@ -8,13 +8,14 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 3 {
-        println!("usage: lattice <init|view> <folder|id>");
+        println!("usage: lattice <init|view|version> <folder|id>");
         return;
     }
 
     match args[1].as_str() {
         "init" => init(Path::new(&args[2])),
         "view" => view(&args[2]),
+        "version" => version(&args[2]),
         _ => println!("unknown command: {}", args[1]),
     }
 }
@@ -56,9 +57,42 @@ fn init(folder: &Path) {
     println!("registered {}", id);
 }
 
+fn version(id: &str) {
+    let home = dirs::home_dir().unwrap();
+
+    let document_dir = home
+        .join(".lattice")
+        .join("documents")
+        .join(id);
+
+    let current_dir = document_dir.join("current");
+    let versions_dir = document_dir.join("versions");
+
+    if !document_dir.is_dir() {
+        println!("document not found: {}", id);
+        return;
+    }
+
+    let version_number = fs::read_dir(&versions_dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().is_dir())
+        .count()
+        + 1;
+
+    let version_dir = versions_dir.join(format!("V{}", version_number));
+
+    fs::create_dir_all(&version_dir).unwrap();
+
+    copy_directory(&current_dir, &version_dir);
+
+    println!("created {} V{}", id, version_number);
+}
+
 fn copy_directory(source: &Path, destination: &Path) {
     for entry in fs::read_dir(source).unwrap() {
         let entry = entry.unwrap();
+
         let source_path = entry.path();
         let destination_path = destination.join(entry.file_name());
 
@@ -73,7 +107,12 @@ fn copy_directory(source: &Path, destination: &Path) {
 
 fn view(id: &str) {
     let home = dirs::home_dir().unwrap();
-    let document_dir = home.join(".lattice").join("documents").join(id);
+
+    let document_dir = home
+        .join(".lattice")
+        .join("documents")
+        .join(id);
+
     let current_dir = document_dir.join("current");
 
     if !document_dir.is_dir() {
@@ -90,6 +129,7 @@ fn view(id: &str) {
 fn print_directory(directory: &Path, indent: &str) {
     for entry in fs::read_dir(directory).unwrap() {
         let entry = entry.unwrap();
+
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
 
