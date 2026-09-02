@@ -1,8 +1,10 @@
 use std::{
     env,
-    fs,
+    fs::{self, OpenOptions},
+    io::Write,
     path::{Path, PathBuf},
 };
+
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -87,6 +89,24 @@ fn version(id: &str) {
     copy_directory(&current_dir, &version_dir);
 
     println!("created {} V{}", id, version_number);
+    let metadata = fs::read_to_string(document_dir.join("metadata")).unwrap();
+
+    let mut new_metadata = String::new();
+
+    for line in metadata.lines() {
+        if line.starts_with("version=") {
+            continue;
+        }
+
+        new_metadata.push_str(line);
+        new_metadata.push('\n');
+    }
+
+    new_metadata.push_str(&format!("version={}", version_number));
+
+    fs::write(document_dir.join("metadata"), new_metadata).unwrap();
+
+
 }
 
 fn copy_directory(source: &Path, destination: &Path) {
