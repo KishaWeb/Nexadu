@@ -296,14 +296,14 @@ fn directories_equal(current: &Path, version: &Path) -> bool {
                 return false;
             }
         }else {
-            if !version_path.is_path(){
+            if !version_path.exists(){
                 return false;
             }
 
-            let current_contenets = fs::read(&current_path);
-            let version_contenets = fs::read(&version_path);
+            let _current_contents = fs::read(&current_path);
+            let _version_contents = fs::read(&version_path);
 
-            if current_contenets != version_contenets{
+            if !version_path.exists(){
                 return false;
             }
         }
