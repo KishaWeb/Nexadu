@@ -40,24 +40,19 @@ fn init(folder: &Path) {
 
     let id = format!("D{}", fs::read_dir(&documents).unwrap().count() + 1);
     let document_dir = documents.join(&id);
-    let current_dir = document_dir.join("current");
     let versions_dir = document_dir.join("versions");
 
-    fs::create_dir_all(&current_dir).unwrap();
     fs::create_dir_all(&versions_dir).unwrap();
 
-    copy_directory(folder, &current_dir);
-
-    let entry = fs::read_dir(&current_dir)
-        .unwrap()
-        .filter_map(Result::ok)
-        .find(|entry| entry.path().is_file())
-        .map(|entry| entry.file_name().to_string_lossy().to_string())
-        .unwrap_or_default();
+    let path = fs::canonicalize(folder).unwrap();
 
     fs::write(
         document_dir.join("metadata"),
-        format!("id={}\nentry={}", id, entry),
+        format!(
+            "id={}\npath={}\nversion=0",
+            id,
+            path.to_string_lossy()
+        ),
     )
     .unwrap();
 
@@ -72,7 +67,6 @@ fn version(id: &str) {
         .join("documents")
         .join(id);
 
-    let current_dir = document_dir.join("current");
     let versions_dir = document_dir.join("versions");
 
     if !document_dir.is_dir() {
@@ -80,22 +74,42 @@ fn version(id: &str) {
         return;
     }
 
+    let metadata = fs::read_to_string(document_dir.join("metadata")).unwrap();
+
+    let path = metadata
+        .lines()
+        .find_map(|line| line.strip_prefix("path="))
+        .map(Path::new);
+
+    let path = match path {
+        Some(path) if path.is_dir() => path,
+        _ => {
+            println!("document path not found");
+            return;
+        }
+    };
+
     let version_number = fs::read_dir(&versions_dir)
         .unwrap()
         .filter_map(Result::ok)
         .filter(|entry| entry.path().is_dir())
-        .count()
-        + 1;
+        .count();
 
-    let version_dir = versions_dir.join(format!("V{}", version_number));
+    if version_number > 0 {
+        let latest_version = versions_dir.join(format!("V{}", version_number));
+
+        if directories_equal(path, &latest_version) {
+            println!("nothing to version");
+            return;
+        }
+    }
+
+    let new_version_number = version_number + 1;
+    let version_dir = versions_dir.join(format!("V{}", new_version_number));
 
     fs::create_dir_all(&version_dir).unwrap();
 
-    copy_directory(&current_dir, &version_dir);
-
-    println!("created {} V{}", id, version_number);
-
-    let metadata = fs::read_to_string(document_dir.join("metadata")).unwrap();
+    copy_directory(path, &version_dir);
 
     let mut new_metadata = String::new();
 
@@ -108,9 +122,11 @@ fn version(id: &str) {
         new_metadata.push('\n');
     }
 
-    new_metadata.push_str(&format!("version={}", version_number));
+    new_metadata.push_str(&format!("version={}", new_version_number));
 
     fs::write(document_dir.join("metadata"), new_metadata).unwrap();
+
+    println!("created {} V{}", id, new_version_number);
 }
 
 fn copy_directory(source: &Path, destination: &Path) {
@@ -147,7 +163,26 @@ fn view(id: &str, version: Option<&str>) {
             .join("versions")
             .join(version),
 
-        None => document_dir.join("current"),
+        None => match fs::read_to_string(document_dir.join("metadata")) {
+            Ok(metadata) => {
+                let path = metadata
+                    .lines()
+                    .find_map(|line| line.strip_prefix("path="))
+                    .map(Path::new);
+
+                match path {
+                    Some(path) if path.is_dir() => path.to_path_buf(),
+                    _ => {
+                        println!("document path not found");
+                        return;
+                    }
+                }
+            }
+            Err(_) => {
+                println!("metadata not found");
+                return;
+            }
+        },
     };
 
     if !view_dir.is_dir() {
@@ -230,4 +265,49 @@ fn history(id: &str) {
             println!("Current version: V{}", version);
         }
     }
+}
+
+fn directories_equal(current: &Path, version: &Path) -> bool {
+    let current_entries: Vec<_> = fs::read_dir(current)
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+
+    let version_entries: Vec<_> = fs::read_dir(version)
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+
+    if current_entries.len() != version_entries.len() {
+        return false;
+    }
+
+    for current_entry in current_entries {
+        let current_path = current_entry.path();
+        let name = current_entry.file_name();
+        let version_path = version.join(&name);
+
+        if current_path.is_dir(){
+            if !version_path.is_dir(){
+                return false;
+            }
+
+            if directories_equal(&current_path, &version_path){
+                return false;
+            }
+        }else {
+            if !version_path.is_path(){
+                return false;
+            }
+
+            let current_contenets = fs::read(&current_path);
+            let version_contenets = fs::read(&version_path);
+
+            if current_contenets != version_contenets{
+                return false;
+            }
+        }
+    }
+
+    true
 }
