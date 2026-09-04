@@ -8,12 +8,13 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 3 {
-        println!("usage: lattice <init|view|version|history|status> <folder|id>");
+        println!("usage: lattice <init|view|version|history|status|restore> <folder|id> [version]");
         return;
     }
 
     match args[1].as_str() {
         "init" => init(Path::new(&args[2])),
+
         "view" => {
             if args.len() == 3 {
                 view(&args[2], None);
@@ -21,9 +22,19 @@ fn main() {
                 view(&args[2], Some(&args[3]));
             }
         }
+
         "version" => version(&args[2]),
         "history" => history(&args[2]),
         "status" => status(&args[2]),
+
+        "restore" => {
+            if args.len() < 4 {
+                println!("usage: lattice restore <id> <version>");
+                return;
+            }
+
+            restore(&args[2], &args[3]);
+        }
         _ => println!("unknown command: {}", args[1]),
     }
 }
@@ -94,7 +105,15 @@ fn version(id: &str) {
         .unwrap()
         .filter_map(Result::ok)
         .filter(|entry| entry.path().is_dir())
-        .count();
+        .filter_map(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .strip_prefix('V')
+                .and_then(|number| number.parse::<usize>().ok())
+        })
+        .max()
+        .unwrap_or(0);
 
     if version_number > 0 {
         let latest_version = versions_dir.join(format!("V{}", version_number));
@@ -128,6 +147,88 @@ fn version(id: &str) {
     fs::write(document_dir.join("metadata"), new_metadata).unwrap();
 
     println!("created {} V{}", id, new_version_number);
+}
+
+fn restore(id: &str, version: &str) {
+    let home = dirs::home_dir().unwrap();
+
+    let document_dir = home
+        .join(".lattice")
+        .join("documents")
+        .join(id);
+
+    let versions_dir = document_dir.join("versions");
+
+    if !document_dir.is_dir() {
+        println!("document not found: {}", id);
+        return;
+    }
+
+    let metadata_path = document_dir.join("metadata");
+
+    let metadata = match fs::read_to_string(&metadata_path) {
+        Ok(metadata) => metadata,
+        Err(_) => {
+            println!("metadata not found");
+            return;
+        }
+    };
+
+    let current_path = match metadata
+        .lines()
+        .find_map(|line| line.strip_prefix("path="))
+        .map(Path::new)
+    {
+        Some(path) if path.is_dir() => path.to_path_buf(),
+        _ => {
+            println!("document path not found");
+            return;
+        }
+    };
+
+    let version_dir = versions_dir.join(version);
+
+    if !version_dir.is_dir() {
+        println!("version not found: {}", version);
+        return;
+    }
+
+    clear_directory(&current_path);
+    copy_directory(&version_dir, &current_path);
+
+    let mut new_metadata = String::new();
+
+    for line in metadata.lines() {
+        if line.starts_with("version=") {
+            continue;
+        }
+
+        new_metadata.push_str(line);
+        new_metadata.push('\n');
+    }
+
+    let version_number = version
+        .strip_prefix('V')
+        .unwrap_or(version);
+
+    new_metadata.push_str(&format!("version={}", version_number));
+
+    fs::write(metadata_path, new_metadata).unwrap();
+
+    println!("restored {} to {}", id, version);
+}
+
+fn clear_directory(directory: &Path) {
+    for entry in fs::read_dir(directory).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+
+        if path.is_dir() {
+            fs::remove_dir_all(path).unwrap();
+        } else {
+            fs::remove_file(path).unwrap();
+        }
+    }
 }
 
 fn copy_directory(source: &Path, destination: &Path) {
@@ -173,12 +274,14 @@ fn view(id: &str, version: Option<&str>) {
 
                 match path {
                     Some(path) if path.is_dir() => path.to_path_buf(),
+
                     _ => {
                         println!("document path not found");
                         return;
                     }
                 }
             }
+
             Err(_) => {
                 println!("metadata not found");
                 return;
@@ -285,6 +388,7 @@ fn status(id: &str) {
 
     let metadata = match fs::read_to_string(document_dir.join("metadata")) {
         Ok(metadata) => metadata,
+
         Err(_) => {
             println!("metadata not found");
             return;
@@ -297,6 +401,7 @@ fn status(id: &str) {
         .map(Path::new)
     {
         Some(path) if path.is_dir() => path,
+
         _ => {
             println!("document path not found");
             return;
@@ -318,6 +423,7 @@ fn status(id: &str) {
 
     let latest_version_number = match latest_version_number {
         Some(number) => number,
+
         None => {
             println!("No versions yet.");
             println!("Everything in the current folder will be added in V1.");
@@ -325,10 +431,14 @@ fn status(id: &str) {
         }
     };
 
-    let latest_version = versions_dir.join(format!("V{}", latest_version_number));
+    let latest_version =
+        versions_dir.join(format!("V{}", latest_version_number));
 
     println!("Document: {}", id);
-    println!("Comparing current files with V{}", latest_version_number);
+    println!(
+        "Comparing current files with V{}",
+        latest_version_number
+    );
     println!();
 
     let mut changes_found = false;
@@ -391,7 +501,9 @@ fn compare_directories(
                 println!("+ {}", relative_path);
                 *changes_found = true;
 
-                if let Ok(contents) = fs::read_to_string(&current_path) {
+                if let Ok(contents) =
+                    fs::read_to_string(&current_path)
+                {
                     for line in contents.lines() {
                         println!("    + {}", line);
                     }
@@ -401,7 +513,10 @@ fn compare_directories(
 
                 println!();
             } else if version_path.is_file() {
-                if files_differ(&current_path, &version_path) {
+                if files_differ(
+                    &current_path,
+                    &version_path,
+                ) {
                     println!("M {}", relative_path);
                     *changes_found = true;
 
@@ -411,7 +526,11 @@ fn compare_directories(
                     );
                 }
             } else {
-                println!("M {} (directory -> file)", relative_path);
+                println!(
+                    "M {} (directory -> file)",
+                    relative_path
+                );
+
                 *changes_found = true;
             }
         }
@@ -441,7 +560,9 @@ fn compare_directories(
                     &version_path,
                     &relative_path,
                 );
-            } else if let Ok(contents) = fs::read_to_string(&version_path) {
+            } else if let Ok(contents) =
+                fs::read_to_string(&version_path)
+            {
                 for line in contents.lines() {
                     println!("    - {}", line);
                 }
@@ -471,6 +592,7 @@ fn files_differ(a: &Path, b: &Path) -> bool {
 fn show_file_diff(old_file: &Path, new_file: &Path) {
     let old = match fs::read_to_string(old_file) {
         Ok(contents) => contents,
+
         Err(_) => {
             println!("    [binary or unreadable file]");
             println!();
@@ -480,6 +602,7 @@ fn show_file_diff(old_file: &Path, new_file: &Path) {
 
     let new = match fs::read_to_string(new_file) {
         Ok(contents) => contents,
+
         Err(_) => {
             println!("    [binary or unreadable file]");
             println!();
@@ -493,7 +616,10 @@ fn show_file_diff(old_file: &Path, new_file: &Path) {
     let max_lines = old_lines.len().max(new_lines.len());
 
     for i in 0..max_lines {
-        match (old_lines.get(i), new_lines.get(i)) {
+        match (
+            old_lines.get(i),
+            new_lines.get(i),
+        ) {
             (Some(old_line), Some(new_line))
                 if old_line == new_line =>
             {
@@ -572,6 +698,7 @@ fn print_added_directory(
         let entry = entry.unwrap();
 
         let path = entry.path();
+
         let name = entry
             .file_name()
             .to_string_lossy()
@@ -590,7 +717,9 @@ fn print_added_directory(
         } else {
             println!("+ {}", child_relative);
 
-            if let Ok(contents) = fs::read_to_string(&path) {
+            if let Ok(contents) =
+                fs::read_to_string(&path)
+            {
                 for line in contents.lines() {
                     println!("    + {}", line);
                 }
@@ -609,6 +738,7 @@ fn print_deleted_directory(
         let entry = entry.unwrap();
 
         let path = entry.path();
+
         let name = entry
             .file_name()
             .to_string_lossy()
@@ -627,7 +757,9 @@ fn print_deleted_directory(
         } else {
             println!("- {}", child_relative);
 
-            if let Ok(contents) = fs::read_to_string(&path) {
+            if let Ok(contents) =
+                fs::read_to_string(&path)
+            {
                 for line in contents.lines() {
                     println!("    - {}", line);
                 }
