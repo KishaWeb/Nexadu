@@ -1,29 +1,19 @@
-use std::{
-    env,
-    fs,
-    path::Path,
-};
+use std::{env, fs, path::Path};
 
-mod version_control;
 mod spans;
+mod version_control;
 
-use version_control::{
-    history,
-    restore,
-    status,
-    version,
-};
+use version_control::{history, restore, status, version};
 
-use spans::{
-    create_span,
-    show_span,
-};
+use spans::{create_span, show_span};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 3 {
-        println!("usage: lattice <init|view|version|history|status|restore|span-create|span> <folder|id> [version|file|span]");
+        println!(
+            "usage: lattice <init|view|version|history|status|restore|span-create|span> <folder|id> [version|file|span]"
+        );
         return;
     }
 
@@ -57,7 +47,10 @@ fn main() {
                 return;
             }
 
-            create_span(&args[2], &args[3]);
+            let start: usize = args[4].parse().unwrap();
+            let end: usize = args[5].parse().unwrap();
+
+            create_span(&args[2], &args[3], start, end);
         }
 
         "span" => {
@@ -94,11 +87,7 @@ fn init(folder: &Path) {
 
     fs::write(
         document_dir.join("metadata"),
-        format!(
-            "id={}\npath={}\nversion=0",
-            id,
-            path.to_string_lossy()
-        ),
+        format!("id={}\npath={}\nversion=0", id, path.to_string_lossy()),
     )
     .unwrap();
 
@@ -108,10 +97,7 @@ fn init(folder: &Path) {
 fn view(id: &str, version: Option<&str>) {
     let home = dirs::home_dir().unwrap();
 
-    let document_dir = home
-        .join(".lattice")
-        .join("documents")
-        .join(id);
+    let document_dir = home.join(".lattice").join("documents").join(id);
 
     if !document_dir.is_dir() {
         println!("document not found: {}", id);
@@ -119,9 +105,7 @@ fn view(id: &str, version: Option<&str>) {
     }
 
     let view_dir = match version {
-        Some(version) => document_dir
-            .join("versions")
-            .join(version),
+        Some(version) => document_dir.join("versions").join(version),
 
         None => match fs::read_to_string(document_dir.join("metadata")) {
             Ok(metadata) => {

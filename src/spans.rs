@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-pub fn create_span(id: &str, file: &str) {
+pub fn create_span(id: &str, file: &str, start: usize, end: usize) {
     let home = dirs::home_dir().unwrap();
 
     let document_dir = home.join(".lattice").join("documents").join(id);
@@ -36,6 +36,16 @@ pub fn create_span(id: &str, file: &str) {
         }
     };
 
+    if start > end || end > contents.len() {
+        println!("invalid span range");
+        return;
+    }
+
+    if !contents.is_char_boundary(start) || !contents.is_char_boundary(end) {
+        println!("span must start and end on character boundaries");
+        return;
+    }
+
     let objects_dir = document_dir.join("objects");
     let spans_dir = document_dir.join("spans");
 
@@ -48,9 +58,42 @@ pub fn create_span(id: &str, file: &str) {
     let object_id = format!("O{}", object_number);
     let span_id = format!("S{}", span_number);
 
-    fs::write(objects_dir.join(&object_id), contents).unwrap();
+    for entry in fs::read_dir(&spans_dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
 
-    fs::write(spans_dir.join(&span_id), format!("{}|{}", object_id, file)).unwrap();
+        let existing_span = fs::read_to_string(path).unwrap();
+
+        let mut state = false;
+
+        for line in existing_span.lines() {
+            if line.starts_with("object=") {
+                state = true;
+            } else if line.starts_with("start=") {
+                state = true;
+            } else if line.starts_with("end=") {
+                state = true;
+            }
+        }
+
+        if state == true {
+            println!("span already exists");
+            return;
+        } else {
+            continue;
+        }
+    }
+
+    fs::write(objects_dir.join(&object_id), &contents).unwrap();
+
+    fs::write(
+        spans_dir.join(&span_id),
+        format!(
+            "object={}\nfile={}\nstart={}\nend={}",
+            object_id, file, start, end
+        ),
+    )
+    .unwrap();
 
     println!("created {}", span_id);
 }
@@ -75,25 +118,30 @@ pub fn show_span(id: &str, span_id: &str) {
         }
     };
 
-    let object_id = match span.split('|').next() {
-        Some(object_id) => object_id,
-        None => {
-            println!("invalid span");
-            return;
+    let mut start = 0;
+    let mut end = 0;
+    let mut object_id = String::new();
+
+    for line in span.lines() {
+        if line.starts_with("object=") {
+            object_id = line.strip_prefix("object=").unwrap().to_string();
+            continue;
+        } else if line.starts_with("start=") {
+            start = line.strip_prefix("start=").unwrap().parse().unwrap();
+        } else if line.starts_with("end=") {
+            end = line.strip_prefix("end=").unwrap().parse().unwrap();
         }
-    };
+    }
 
-    let object_path = document_dir.join("objects").join(object_id);
+    let object_path = document_dir.join("objects").join(&object_id);
 
-    let contents = match fs::read_to_string(object_path) {
-        Ok(contents) => contents,
+    let object = match fs::read_to_string(&object_path) {
+        Ok(object) => object,
         Err(_) => {
             println!("object not found: {}", object_id);
             return;
         }
     };
 
-    println!("Span: {}", span_id);
-    println!();
-    print!("{}", contents);
+    println!("{}", &object[start..end]);
 }
