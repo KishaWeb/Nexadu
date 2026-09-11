@@ -7,6 +7,8 @@ use version_control::{history, restore, status, version};
 
 use spans::{create_span, show_span};
 
+use crate::spans::list_spans;
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
@@ -55,11 +57,21 @@ fn main() {
 
         "span" => {
             if args.len() < 4 {
-                println!("usage: lattice span <id> <span>");
+                println!("usage: lattice span <id> <span> [all]");
                 return;
             }
 
-            show_span(&args[2], &args[3]);
+            let all = args.last().map(|arg| arg == "all").unwrap_or(false);
+
+            show_span(&args[2], &args[3], all);
+        }
+        
+        "list_spans" => {
+            if args.len() < 3{
+                println!("usage: lattice list_spans <id>")
+            }
+
+            list_spans(&args[2]);
         }
 
         _ => println!("unknown command: {}", args[1]),

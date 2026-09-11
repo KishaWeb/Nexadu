@@ -98,7 +98,7 @@ pub fn create_span(id: &str, file: &str, start: usize, end: usize) {
     println!("created {}", span_id);
 }
 
-pub fn show_span(id: &str, span_id: &str) {
+pub fn show_span(id: &str, span_id: &str, all: bool) {
     let home = dirs::home_dir().unwrap();
 
     let document_dir = home.join(".lattice").join("documents").join(id);
@@ -121,6 +121,7 @@ pub fn show_span(id: &str, span_id: &str) {
     let mut start = 0;
     let mut end = 0;
     let mut object_id = String::new();
+    let mut file = String::new();
 
     for line in span.lines() {
         if line.starts_with("object=") {
@@ -130,6 +131,8 @@ pub fn show_span(id: &str, span_id: &str) {
             start = line.strip_prefix("start=").unwrap().parse().unwrap();
         } else if line.starts_with("end=") {
             end = line.strip_prefix("end=").unwrap().parse().unwrap();
+        } else if line.starts_with("file="){            
+            file = line.strip_prefix("file=").unwrap().to_string();
         }
     }
 
@@ -143,5 +146,62 @@ pub fn show_span(id: &str, span_id: &str) {
         }
     };
 
+    if all {
+        println!("Span: {}", span_id);
+        println!("Object: {}", object_id);
+        println!("File: {}", file);
+        println!("Range: {}..{}", start, end);
+        println!();
+    }
+
     println!("{}", &object[start..end]);
+}
+
+pub fn list_spans(id: &str) {
+    let home = dirs::home_dir().unwrap();
+
+    let document_dir = home
+        .join(".lattice")
+        .join("documents")
+        .join(id);
+
+    if !document_dir.is_dir() {
+        println!("document not found: {}", id);
+        return;
+    }
+
+    let spans_dir = document_dir.join("spans");
+
+    let entries = fs::read_dir(&spans_dir).unwrap();
+
+    println!("Spans for {}", id);
+    println!("ID   Object   File         Range");
+    
+    for entry in entries {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        let span_id = path.file_name().unwrap().to_string_lossy();
+
+        let span = fs::read_to_string(&path).unwrap();
+
+        let mut object_id = String::new();
+        let mut file = String::new();
+        let mut start = 0;
+        let mut end = 0;
+        
+        for line in span.lines() {
+            if line.starts_with("object=") {
+                object_id = line.strip_prefix("object=").unwrap().to_string();
+                continue;
+            } else if line.starts_with("start=") {
+                start = line.strip_prefix("start=").unwrap().parse().unwrap();
+            } else if line.starts_with("end=") {
+                end = line.strip_prefix("end=").unwrap().parse().unwrap();
+            }else if line.starts_with("file="){
+                file = line.strip_prefix("file=").unwrap().to_string();
+            }
+        }
+
+        println!("{:<4} {:<8} {:<12} {}..{}", span_id, object_id, file, start, end);
+   }
 }
