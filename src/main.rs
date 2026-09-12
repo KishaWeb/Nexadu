@@ -2,10 +2,13 @@ use std::{env, fs, path::Path};
 
 mod spans;
 mod version_control;
+mod tui;
 
 use version_control::{history, restore, status, version};
 
 use spans::{create_span, show_span};
+
+use tui::tui;
 
 use crate::spans::list_spans;
 
@@ -25,6 +28,8 @@ fn main() {
         "view" => {
             if args.len() == 3 {
                 view(&args[2], None);
+            } else if &args[3] == "tui" {
+                let _ = tui(&args[2], None);
             } else {
                 view(&args[2], Some(&args[3]));
             }
