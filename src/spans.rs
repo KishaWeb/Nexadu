@@ -64,24 +64,29 @@ pub fn create_span(id: &str, file: &str, start: usize, end: usize) {
 
         let existing_span = fs::read_to_string(path).unwrap();
 
-        let mut state = false;
-
+        let mut existing_file = String::new();
+        let mut existing_end = 0;
+        let mut existing_start = 0;
+        
         for line in existing_span.lines() {
-            if line.starts_with("object=") {
-                state = true;
-            } else if line.starts_with("start=") {
-                state = true;
+             if line.starts_with("start=") {
+                existing_start = line.strip_prefix("start=").unwrap().parse().unwrap();
+                continue;
             } else if line.starts_with("end=") {
-                state = true;
+                existing_end = line.strip_prefix("end=").unwrap().parse().unwrap();
+            } else if line.starts_with("file="){            
+                existing_file = line.strip_prefix("file=").unwrap().to_string();
             }
         }
 
-        if state == true {
+        if existing_start == start
+            && existing_end == end
+            && existing_file == file
+        {
             println!("span already exists");
             return;
-        } else {
-            continue;
         }
+
     }
 
     fs::write(objects_dir.join(&object_id), &contents).unwrap();
