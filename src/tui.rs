@@ -7,7 +7,11 @@ use ratatui::{
 };
 use std::{fs, path::Path};
 
-fn load_spans(document_dir: &Path, file: &str) -> Vec<(usize, usize)> {
+fn load_spans(
+    document_dir: &Path,
+    version: &str,
+    file: &str,
+) -> Vec<(usize, usize)> {
     let spans_dir = document_dir.join("spans");
 
     let entries = match fs::read_dir(&spans_dir) {
@@ -29,29 +33,30 @@ fn load_spans(document_dir: &Path, file: &str) -> Vec<(usize, usize)> {
             Err(_) => continue,
         };
 
+        let mut span_version = String::new();
         let mut span_file = String::new();
-        let mut start = None;
-        let mut end = None;
+        let mut start = 0;
+        let mut end = 0;
 
         for line in span.lines() {
-            if let Some(value) = line.strip_prefix("file=") {
+            if let Some(value) = line.strip_prefix("version=") {
+                span_version = value.to_string();
+            } else if let Some(value) = line.strip_prefix("file=") {
                 span_file = value.to_string();
             } else if let Some(value) = line.strip_prefix("start=") {
-                start = value.parse::<usize>().ok();
+                start = match value.parse() {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                };
             } else if let Some(value) = line.strip_prefix("end=") {
-                end = value.parse::<usize>().ok();
+                end = match value.parse() {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                };
             }
         }
 
-        if span_file != file {
-            continue;
-        }
-
-        let (Some(start), Some(end)) = (start, end) else {
-            continue;
-        };
-
-        if start < end {
+        if span_version == version && span_file == file {
             spans.push((start, end));
         }
     }
@@ -70,9 +75,8 @@ fn highlight_spans(
 
     for line in content.lines() {
         let line_end = line_start + line.len();
-
-        let mut line_spans = Vec::new();
         let mut position = line_start;
+        let mut line_spans = Vec::new();
 
         for &(start, end) in spans {
             if end <= line_start || start >= line_end {
@@ -88,14 +92,12 @@ fn highlight_spans(
                 ));
             }
 
-            if position < span_end {
-                line_spans.push(Span::styled(
-                    content[span_start..span_end].to_string(),
-                    Style::default().add_modifier(Modifier::REVERSED),
-                ));
+            line_spans.push(Span::styled(
+                content[span_start..span_end].to_string(),
+                Style::default().add_modifier(Modifier::REVERSED),
+            ));
 
-                position = span_end;
-            }
+            position = span_end;
         }
 
         if position < line_end {
@@ -114,6 +116,7 @@ fn highlight_spans(
 
 pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
     let home = dirs::home_dir().unwrap();
+
     let document_dir = home
         .join(".lattice")
         .join("documents")
@@ -123,6 +126,8 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
         println!("document not found: {}", id);
         return Ok(());
     }
+
+    let display_version = version.unwrap_or("current");
 
     let view_dir = match version {
         Some(version) => document_dir
@@ -169,6 +174,8 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
         }
     }
 
+    files.sort();
+
     let mut selected = 0;
     let mut scroll = 0;
     let mut state = ListState::default();
@@ -205,7 +212,10 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
                     .collect();
 
                 let file_list = List::new(items)
-                    .block(Block::bordered().title("Files"))
+                    .block(
+                        Block::bordered()
+                            .title(format!("Files — {}", display_version)),
+                    )
                     .highlight_symbol("> ");
 
                 frame.render_stateful_widget(
@@ -214,40 +224,38 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
                     &mut state,
                 );
 
-                let (content, title) = if files.is_empty() {
-                    (
-                        String::from("No files"),
-                        String::from(""),
-                    )
+                let content = if files.is_empty() {
+                    String::from("No files")
                 } else {
-                    let path = &files[selected];
-
-                    let content = fs::read_to_string(path)
+                    fs::read_to_string(&files[selected])
                         .unwrap_or_else(|_| {
                             String::from("Could not read file")
-                        });
-
-                    let title = path
-                        .file_name()
-                        .map(|name| name.to_string_lossy().to_string())
-                        .unwrap_or_default();
-
-                    (content, title)
+                        })
                 };
 
-                let highlighted = if files.is_empty() {
-                    Text::from(content)
-                } else {
-                    let spans = load_spans(
-                        &document_dir,
-                        &title,
-                    );
+                let title = files
+                    .get(selected)
+                    .and_then(|path| path.file_name())
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_default();
 
-                    highlight_spans(&content, &spans)
-                };
+                let spans = load_spans(
+                    &document_dir,
+                    display_version,
+                    &title,
+                );
 
-                let right_panel = Paragraph::new(highlighted)
-                    .block(Block::bordered().title(title))
+                let text = highlight_spans(&content, &spans);
+
+                let right_panel = Paragraph::new(text)
+                    .block(
+                        Block::bordered()
+                            .title(format!(
+                                "{} — {}",
+                                title,
+                                display_version
+                            )),
+                    )
                     .wrap(Wrap { trim: false })
                     .scroll((scroll, 0));
 
@@ -261,7 +269,7 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
             })?;
 
             if event::poll(
-                std::time::Duration::from_millis(100)
+                std::time::Duration::from_millis(100),
             )? {
                 if let Event::Key(key) = event::read()? {
                     match key.code {
@@ -277,9 +285,8 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
 
                         KeyCode::Down => {
                             if !files.is_empty() {
-                                selected = (selected + 1)
-                                    .min(files.len() - 1);
-
+                                selected =
+                                    (selected + 1).min(files.len() - 1);
                                 scroll = 0;
                                 state.select(Some(selected));
                             }

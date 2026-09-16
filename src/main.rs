@@ -6,7 +6,7 @@ mod tui;
 
 use version_control::{history, restore, status, version};
 
-use spans::{create_span, show_span};
+use spans::{create_span, show_span,remove_span};
 
 use tui::tui;
 
@@ -28,8 +28,10 @@ fn main() {
         "view" => {
             if args.len() == 3 {
                 view(&args[2], None);
-            } else if &args[3] == "tui" {
+            } else if args.len() >= 4 && args[3] == "tui" {
                 let _ = tui(&args[2], None);
+            } else if args.len() >= 5 && args[4] == "tui" {
+                let _ = tui(&args[2], Some(&args[3]));
             } else {
                 view(&args[2], Some(&args[3]));
             }
@@ -49,34 +51,71 @@ fn main() {
         }
 
         "span-create" => {
-            if args.len() < 4 {
-                println!("usage: lattice span-create <id> <file>");
+            if args.len() < 7 {
+                println!(
+                    "usage: lattice span-create <id> <version|current> <file> <start> <end>"
+                );
                 return;
             }
 
-            let start: usize = args[4].parse().unwrap();
-            let end: usize = args[5].parse().unwrap();
+            let start: usize = match args[5].parse() {
+                Ok(value) => value,
+                Err(_) => {
+                    println!("invalid start");
+                    return;
+                }
+            };
 
-            create_span(&args[2], &args[3], start, end);
+            let end: usize = match args[6].parse() {
+                Ok(value) => value,
+                Err(_) => {
+                    println!("invalid end");
+                    return;
+                }
+            };
+
+            create_span(
+                &args[2],
+                &args[3],
+                &args[4],
+                start,
+                end,
+            );
         }
-
+        
         "span" => {
-            if args.len() < 4 {
-                println!("usage: lattice span <id> <span> [all]");
+            if args.len() < 5 {
+                println!("usage: lattice span <id> <version> <span> [all]");
                 return;
             }
 
             let all = args.last().map(|arg| arg == "all").unwrap_or(false);
 
-            show_span(&args[2], &args[3], all);
+            show_span(
+                &args[2],
+                &args[3],
+                &args[4],
+                all,
+            );
         }
         
         "list_spans" => {
             if args.len() < 3{
                 println!("usage: lattice list_spans <id>")
+            }else if args.len() == 3{
+                list_spans(&args[2], None)
+            }else{
+                list_spans(&args[2], Some(&args[3]));
+            }
+        }
+
+        "span-remove" => {
+            if args.len() < 4 {
+                println!("usage: lattice span-remove <id> <span>");
+                return;
             }
 
-            list_spans(&args[2]);
+            remove_span(&args[2], &args[3]);
         }
 
         _ => println!("unknown command: {}", args[1]),
