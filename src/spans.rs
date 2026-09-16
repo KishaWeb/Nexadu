@@ -129,8 +129,33 @@ pub fn remove_span(id: &str, span_id:&str){
         return;
     }
 
-    let span_path = document_dir.join("spans").join(span_id);
+    let span_path = document_dir.join("spans").join(span_id); 
 
+    let span = match fs::read_to_string(&span_path) {
+        Ok(span) => span,
+        Err(_) => {
+            println!("span not found: {}", span_id);
+            return;
+        }
+    };
+
+    let mut object_id = String::new();
+
+    for line in span.lines(){        
+        if line.starts_with("object=") {
+            object_id = line.strip_prefix("object=").unwrap().to_string();
+            continue;
+        }
+    }
+        
+    let object_path = document_dir.join("objects").join(&object_id);
+
+    
+    match fs::remove_file(object_path) {
+        Ok(_) => println!("object removed"),
+        Err(_) =>println!("failed to remove the spans object")
+    }
+    
     match fs::remove_file(span_path) {
         Ok(_) => println!("span removed"),
         Err(_) =>println!("failed to remove span")
@@ -340,4 +365,97 @@ pub fn list_spans(id: &str, version_filter: Option<&str>) {
 
     println!("│");
     println!("╰────────────────────────────────────────────────────────");
+}
+
+pub fn gc(id: &str) {
+    let home = dirs::home_dir().unwrap();
+
+    let document_dir = home
+        .join(".lattice")
+        .join("documents")
+        .join(id);
+
+    if !document_dir.is_dir() {
+        println!("document not found: {}", id);
+        return;
+    }
+
+    let spans_dir = document_dir.join("spans");
+    let objects_dir = document_dir.join("objects");
+
+    if !spans_dir.is_dir() || !objects_dir.is_dir() {
+        println!("nothing to clean");
+        return;
+    }
+
+    let mut referenced_objects = Vec::new();
+
+    let entries = match fs::read_dir(&spans_dir) {
+        Ok(entries) => entries,
+        Err(_) => {
+            println!("failed to read spans");
+            return;
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        if !path.is_file() {
+            continue;
+        }
+
+        let span = match fs::read_to_string(&path) {
+            Ok(span) => span,
+            Err(_) => continue,
+        };
+
+        for line in span.lines() {
+            if let Some(object_id) = line.strip_prefix("object=") {
+                referenced_objects.push(object_id.to_string());
+            }
+        }
+    }
+
+    let objects = match fs::read_dir(&objects_dir) {
+        Ok(objects) => objects,
+        Err(_) => {
+            println!("failed to read objects");
+            return;
+        }
+    };
+
+    let mut removed = 0;
+
+    for entry in objects.flatten() {
+        let path = entry.path();
+
+        if !path.is_file() {
+            continue;
+        }
+
+        let object_id = match path.file_name() {
+            Some(name) => name.to_string_lossy().to_string(),
+            None => continue,
+        };
+
+        if !referenced_objects.contains(&object_id) {
+            match fs::remove_file(&path) {
+                Ok(_) => {
+                    println!("removed {}", object_id);
+                    removed += 1;
+                }
+
+                Err(_) => {
+                    println!("failed to remove {}", object_id);
+                }
+            }
+        }
+    }
+
+    if removed == 0 {
+        println!("nothing to clean");
+    } else {
+        println!("removed {} unused object(s)", removed);
+    }
 }

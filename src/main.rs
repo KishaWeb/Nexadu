@@ -6,7 +6,7 @@ mod tui;
 
 use version_control::{history, restore, status, version};
 
-use spans::{create_span, show_span,remove_span};
+use spans::{create_span, show_span,remove_span,gc};
 
 use tui::tui;
 
@@ -116,6 +116,14 @@ fn main() {
             }
 
             remove_span(&args[2], &args[3]);
+        }
+
+        "gc" => {
+            if args.len() < 3 {
+                println!("usage: lattice gc <id>")
+            }
+
+            gc(&args[2]);
         }
 
         _ => println!("unknown command: {}", args[1]),
