@@ -3,21 +3,22 @@ use std::{env, fs, path::Path};
 mod spans;
 mod version_control;
 mod tui;
+mod references;
 
 use version_control::{history, restore, status, version};
 
-use spans::{create_span, show_span,remove_span,gc};
+use spans::{create_span, show_span,remove_span,gc, list_spans};
 
 use tui::tui;
 
-use crate::spans::list_spans;
+use references::create_reference;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 3 {
         println!(
-            "usage: lattice <init|view|version|history|status|restore|span-create|span> <folder|id> [version|file|span]"
+            "usage: lattice <init|view|version|history|status|restore|span-create|span|spans-list|span-remove|gc> <folder|id> [version|file|span]"
         );
         return;
     }
@@ -99,7 +100,7 @@ fn main() {
             );
         }
         
-        "list_spans" => {
+        "spans-list" => {
             if args.len() < 3{
                 println!("usage: lattice list_spans <id>")
             }else if args.len() == 3{
@@ -124,6 +125,20 @@ fn main() {
             }
 
             gc(&args[2]);
+        }
+
+        "ref-create" => {
+            if args.len() < 6 {
+                println!("usage: lattice ref-create <from_document> <from_span> <to_document> <to_span>");
+                return;
+            }
+
+            create_reference(
+                &args[2],
+                &args[3],
+                &args[4],
+                &args[5],
+            );
         }
 
         _ => println!("unknown command: {}", args[1]),
