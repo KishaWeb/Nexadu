@@ -219,15 +219,22 @@ pub fn show_span(
     };
 
     if all {
-        println!("Span: {}", span_id);
-        println!("Object: {}", object_id);
-        println!("File: {}", file);
-        println!("Version: {}", version);
-        println!("Range: {}..{}", start, end);
-        println!();
+        println!("╭─ Span {}", span_id);
+        println!("│");
+        println!("│  Object:  {}", object_id);
+        println!("│  Version: {}", version);
+        println!("│  File:    {}", file);
+        println!("│  Range:   {}..{}", start, end);
+        println!("│");
+        println!("│  Content:");
+        println!("│  ─────────────────────────");
+        println!("│  {}", object[start..end].trim_end());
+        println!("│");
+        println!("╰────────────────────────────────");
+    } else {
+        println!("{}", &object[start..end]);
     }
 
-    println!("{}", &object[start..end]);
 }
 
 pub fn list_spans(id: &str, version_filter: Option<&str>) {

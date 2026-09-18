@@ -11,14 +11,14 @@ use spans::{create_span, show_span,remove_span,gc, list_spans};
 
 use tui::tui;
 
-use references::create_reference;
+use references::{create_reference, show_reference,list_references,remove_reference};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 3 {
         println!(
-            "usage: lattice <init|view|version|history|status|restore|span-create|span|spans-list|span-remove|gc> <folder|id> [version|file|span]"
+            "usage: lattice <init|view|version|history|status|restore|span-create|span|spans-list|span-remove|gc|ref-create|ref|ref-list|ref-remove> <folder|id> [version|file|span|reference]"
         );
         return;
     }
@@ -128,8 +128,10 @@ fn main() {
         }
 
         "ref-create" => {
-            if args.len() < 6 {
-                println!("usage: lattice ref-create <from_document> <from_span> <to_document> <to_span>");
+            if args.len() < 8 {
+                println!(
+                    "usage: lattice ref-create <from_document> <from_version> <from_span> <to_document> <to_version> <to_span>"
+                );
                 return;
             }
 
@@ -138,9 +140,37 @@ fn main() {
                 &args[3],
                 &args[4],
                 &args[5],
+                &args[6],
+                &args[7],
             );
         }
+        
+        "ref" => {
+            if args.len() < 4 {
+                println!("usage: lattice ref <id> <reference>");
+                return;
+            }
 
+            show_reference(&args[2], &args[3]);
+        }
+        
+        "ref-list" => {
+            if args.len() < 3 {
+                println!("usage: lattice ref-list <id>");
+                return;
+            }
+
+            list_references(&args[2]);
+        }
+        "ref-remove" => {
+            if args.len() < 3 {
+                println!("usage: lattice ref-remove <reference>");
+                return;
+            }
+
+            remove_reference(&args[2]);
+        }
+        
         _ => println!("unknown command: {}", args[1]),
     }
 }
