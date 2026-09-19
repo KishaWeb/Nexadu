@@ -5,7 +5,20 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, List, ListItem, ListState, Paragraph, Wrap},
 };
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+#[derive(Clone)]
+struct Reference {
+    id: String,
+    start: usize,
+    end: usize,
+    to_document: String,
+    to_version: String,
+    to_span: String,
+}
 
 fn load_spans(
     document_dir: &Path,
@@ -35,8 +48,8 @@ fn load_spans(
 
         let mut span_version = String::new();
         let mut span_file = String::new();
-        let mut start = 0;
-        let mut end = 0;
+        let mut start = None;
+        let mut end = None;
 
         for line in span.lines() {
             if let Some(value) = line.strip_prefix("version=") {
@@ -44,128 +57,314 @@ fn load_spans(
             } else if let Some(value) = line.strip_prefix("file=") {
                 span_file = value.to_string();
             } else if let Some(value) = line.strip_prefix("start=") {
-                start = match value.parse() {
-                    Ok(value) => value,
-                    Err(_) => continue,
-                };
+                if let Ok(value) = value.parse::<usize>() {
+                    start = Some(value);
+                }
             } else if let Some(value) = line.strip_prefix("end=") {
-                end = match value.parse() {
-                    Ok(value) => value,
-                    Err(_) => continue,
-                };
+                if let Ok(value) = value.parse::<usize>() {
+                    end = Some(value);
+                }
             }
         }
 
         if span_version == version && span_file == file {
-            spans.push((start, end));
+            if let (Some(start), Some(end)) = (start, end) {
+                if start < end {
+                    spans.push((start, end));
+                }
+            }
         }
     }
 
-    spans.sort_by_key(|(start, _)| *start);
-
+    spans.sort_unstable_by_key(|(start, _)| *start);
     spans
+}
+
+fn load_references(
+    document_dir: &Path,
+    document_id: &str,
+    version: &str,
+    file: &str,
+) -> Vec<Reference> {
+    let references_dir = document_dir
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("references");
+
+    let entries = match fs::read_dir(&references_dir) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut references = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        if !path.is_file() {
+            continue;
+        }
+
+        let reference = match fs::read_to_string(&path) {
+            Ok(reference) => reference,
+            Err(_) => continue,
+        };
+
+        let reference_id = match path.file_name() {
+            Some(name) => name.to_string_lossy().to_string(),
+            None => continue,
+        };
+
+        let mut from_document = String::new();
+        let mut from_version = String::new();
+        let mut from_span = String::new();
+
+        let mut to_document = String::new();
+        let mut to_version = String::new();
+        let mut to_span = String::new();
+
+        for line in reference.lines() {
+            if let Some(value) = line.strip_prefix("from_document=") {
+                from_document = value.to_string();
+            } else if let Some(value) = line.strip_prefix("from_version=") {
+                from_version = value.to_string();
+            } else if let Some(value) = line.strip_prefix("from_span=") {
+                from_span = value.to_string();
+            } else if let Some(value) = line.strip_prefix("to_document=") {
+                to_document = value.to_string();
+            } else if let Some(value) = line.strip_prefix("to_version=") {
+                to_version = value.to_string();
+            } else if let Some(value) = line.strip_prefix("to_span=") {
+                to_span = value.to_string();
+            }
+        }
+
+        if from_document != document_id || from_version != version {
+            continue;
+        }
+
+        let span_path = document_dir.join("spans").join(&from_span);
+
+        let span = match fs::read_to_string(&span_path) {
+            Ok(span) => span,
+            Err(_) => continue,
+        };
+
+        let mut span_version = String::new();
+        let mut span_file = String::new();
+        let mut start = None;
+        let mut end = None;
+
+        for line in span.lines() {
+            if let Some(value) = line.strip_prefix("version=") {
+                span_version = value.to_string();
+            } else if let Some(value) = line.strip_prefix("file=") {
+                span_file = value.to_string();
+            } else if let Some(value) = line.strip_prefix("start=") {
+                if let Ok(value) = value.parse::<usize>() {
+                    start = Some(value);
+                }
+            } else if let Some(value) = line.strip_prefix("end=") {
+                if let Ok(value) = value.parse::<usize>() {
+                    end = Some(value);
+                }
+            }
+        }
+
+        if span_version != version || span_file != file {
+            continue;
+        }
+
+        let (start, end) = match (start, end) {
+            (Some(start), Some(end)) if start < end => (start, end),
+            _ => continue,
+        };
+
+        references.push(Reference {
+            id: reference_id,
+            start,
+            end,
+            to_document,
+            to_version,
+            to_span,
+        });
+    }
+
+    references.sort_by(|a, b| {
+        let a_num = a
+            .id
+            .trim_start_matches('R')
+            .parse::<usize>()
+            .unwrap_or(0);
+
+        let b_num = b
+            .id
+            .trim_start_matches('R')
+            .parse::<usize>()
+            .unwrap_or(0);
+
+        a_num.cmp(&b_num)
+    });
+
+    references
 }
 
 fn highlight_spans(
     content: &str,
     spans: &[(usize, usize)],
+    references: &[Reference],
+    selected_reference: Option<usize>,
+    show_spans: bool,
+    show_references: bool,
 ) -> Text<'static> {
+    let content_len = content.len();
     let mut lines = Vec::new();
     let mut line_start = 0;
 
-    for line in content.lines() {
-        let line_end = line_start + line.len();
-        let mut position = line_start;
+    for line in content.split_inclusive('\n') {
+        let line_without_newline = line.strip_suffix('\n').unwrap_or(line);
+        let line_end = line_start + line_without_newline.len();
+
+        let mut boundaries = vec![line_start, line_end];
+
+        if show_spans {
+            for &(start, end) in spans {
+                let start = start.min(content_len);
+                let end = end.min(content_len);
+
+                if start < end && end > line_start && start < line_end {
+                    boundaries.push(start.max(line_start));
+                    boundaries.push(end.min(line_end));
+                }
+            }
+        }
+
+        if show_references {
+            for reference in references {
+                let start = reference.start.min(content_len);
+                let end = reference.end.min(content_len);
+
+                if start < end && end > line_start && start < line_end {
+                    boundaries.push(start.max(line_start));
+                    boundaries.push(end.min(line_end));
+                }
+            }
+        }
+
+        boundaries.sort_unstable();
+        boundaries.dedup();
+
         let mut line_spans = Vec::new();
 
-        for &(start, end) in spans {
-            if end <= line_start || start >= line_end {
+        for window in boundaries.windows(2) {
+            let start = window[0];
+            let end = window[1];
+
+            if start >= end || start > content_len || end > content_len {
                 continue;
             }
 
-            let span_start = start.max(line_start);
-            let span_end = end.min(line_end);
-
-            if position < span_start {
-                line_spans.push(Span::raw(
-                    content[position..span_start].to_string(),
-                ));
+            if !content.is_char_boundary(start) || !content.is_char_boundary(end) {
+                continue;
             }
 
-            line_spans.push(Span::styled(
-                content[span_start..span_end].to_string(),
-                Style::default().add_modifier(Modifier::REVERSED),
-            ));
+            let inside_span = show_spans
+                && spans.iter().any(|&(span_start, span_end)| {
+                    start >= span_start && end <= span_end
+                });
 
-            position = span_end;
+            let reference_index = if show_references {
+                references
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, reference)| {
+                        start >= reference.start && end <= reference.end
+                    })
+                    .map(|(index, _)| index)
+                    .next()
+            } else {
+                None
+            };
+
+            let mut style = Style::default();
+
+            if inside_span {
+                style = style.add_modifier(Modifier::DIM);
+            }
+
+            if reference_index.is_some() {
+                style = style.add_modifier(Modifier::UNDERLINED);
+            }
+
+            if let Some(index) = reference_index {
+                if selected_reference == Some(index) {
+                    style = style.add_modifier(Modifier::REVERSED);
+                }
+            }
+            
+            let text = content[start..end].to_string();
+
+            if style == Style::default() {
+                line_spans.push(Span::raw(text));
+            } else {
+                line_spans.push(Span::styled(text, style));
+            }
         }
 
-        if position < line_end {
-            line_spans.push(Span::raw(
-                content[position..line_end].to_string(),
-            ));
+        if line_spans.is_empty() {
+            line_spans.push(Span::raw(line_without_newline.to_string()));
         }
 
         lines.push(Line::from(line_spans));
 
-        line_start = line_end + 1;
+        line_start += line.len();
+    }
+
+    if content.is_empty() {
+        lines.push(Line::from(""));
     }
 
     Text::from(lines)
 }
 
-pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
-    let home = dirs::home_dir().unwrap();
+fn get_view_dir(
+    document_dir: &Path,
+    version: &str,
+) -> Option<PathBuf> {
+    if version == "current" {
+        let metadata = fs::read_to_string(document_dir.join("metadata"))
+            .ok()?;
 
-    let document_dir = home
-        .join(".lattice")
-        .join("documents")
-        .join(id);
+        let path = metadata
+            .lines()
+            .find_map(|line| line.strip_prefix("path="))?;
 
-    if !document_dir.is_dir() {
-        println!("document not found: {}", id);
-        return Ok(());
-    }
+        let path = PathBuf::from(path);
 
-    let display_version = version.unwrap_or("current");
-
-    let view_dir = match version {
-        Some(version) => document_dir
+        if path.is_dir() {
+            Some(path)
+        } else {
+            None
+        }
+    } else {
+        let path = document_dir
             .join("versions")
-            .join(version),
+            .join(version);
 
-        None => match fs::read_to_string(document_dir.join("metadata")) {
-            Ok(metadata) => {
-                let path = metadata
-                    .lines()
-                    .find_map(|line| line.strip_prefix("path="))
-                    .map(Path::new);
-
-                match path {
-                    Some(path) if path.is_dir() => path.to_path_buf(),
-
-                    _ => {
-                        println!("document path not found");
-                        return Ok(());
-                    }
-                }
-            }
-
-            Err(_) => {
-                println!("metadata not found");
-                return Ok(());
-            }
-        },
-    };
-
-    if !view_dir.is_dir() {
-        println!("view directory not found");
-        return Ok(());
+        if path.is_dir() {
+            Some(path)
+        } else {
+            None
+        }
     }
+}
 
+fn get_files(view_dir: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
 
-    for entry in fs::read_dir(&view_dir)? {
+    for entry in fs::read_dir(view_dir)? {
         let entry = entry?;
         let path = entry.path();
 
@@ -176,28 +375,145 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
 
     files.sort();
 
+    Ok(files)
+}
+
+fn target_file(
+    lattice_dir: &Path,
+    document: &str,
+    version: &str,
+    span_id: &str,
+) -> Option<String> {
+    let span_path = lattice_dir
+        .join("documents")
+        .join(document)
+        .join("spans")
+        .join(span_id);
+
+    let span = fs::read_to_string(span_path).ok()?;
+
+    let mut span_version = String::new();
+    let mut file = String::new();
+
+    for line in span.lines() {
+        if let Some(value) = line.strip_prefix("version=") {
+            span_version = value.to_string();
+        } else if let Some(value) = line.strip_prefix("file=") {
+            file = value.to_string();
+        }
+    }
+
+    if span_version != version {
+        return None;
+    }
+
+    Some(file)
+}
+
+pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
+    let home = dirs::home_dir().unwrap();
+    let lattice_dir = home.join(".lattice");
+
+    let mut current_id = id.to_string();
+    let mut current_version =
+        version.unwrap_or("current").to_string();
+
     let mut selected = 0;
     let mut scroll = 0;
-    let mut state = ListState::default();
 
-    if !files.is_empty() {
-        state.select(Some(selected));
-    }
+    let mut show_spans = false;
+    let mut show_references = true;
+
+    let mut reference_index: Option<usize> = None;
+
+    let mut state = ListState::default();
 
     ratatui::run(|terminal| {
         loop {
-            terminal.draw(|frame| {
-                let [main, guide] = Layout::vertical([
-                    Constraint::Min(1),
-                    Constraint::Length(1),
-                ])
-                .areas(frame.area());
+            let document_dir = lattice_dir
+                .join("documents")
+                .join(&current_id);
 
-                let [left, right] = Layout::horizontal([
-                    Constraint::Percentage(30),
-                    Constraint::Percentage(70),
-                ])
-                .areas(main);
+            if !document_dir.is_dir() {
+                break;
+            }
+
+            let view_dir = match get_view_dir(
+                &document_dir,
+                &current_version,
+            ) {
+                Some(path) => path,
+                None => break,
+            };
+
+            let files = match get_files(&view_dir) {
+                Ok(files) => files,
+                Err(_) => break,
+            };
+
+            if files.is_empty() {
+                selected = 0;
+                state.select(None);
+            } else {
+                selected = selected.min(files.len() - 1);
+                state.select(Some(selected));
+            }
+
+            let title = files
+                .get(selected)
+                .and_then(|path| path.file_name())
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            let content = if files.is_empty() {
+                String::from("No files")
+            } else {
+                fs::read_to_string(&files[selected])
+                    .unwrap_or_else(|_| {
+                        String::from("Could not read file")
+                    })
+            };
+
+            let spans = load_spans(
+                &document_dir,
+                &current_version,
+                &title,
+            );
+
+            let references = load_references(
+                &document_dir,
+                &current_id,
+                &current_version,
+                &title,
+            );
+
+            if let Some(index) = reference_index {
+                if index >= references.len() {
+                    reference_index = None;
+                }
+            }
+
+            terminal.draw(|frame| {
+                let [main, reference_panel, guide] =
+                    Layout::vertical([
+                        Constraint::Min(1),
+                        Constraint::Length(
+                            if reference_index.is_some() {
+                                3
+                            } else {
+                                1
+                            },
+                        ),
+                        Constraint::Length(1),
+                    ])
+                    .areas(frame.area());
+
+                let [left, right] =
+                    Layout::horizontal([
+                        Constraint::Percentage(25),
+                        Constraint::Percentage(75),
+                    ])
+                    .areas(main);
 
                 let items: Vec<ListItem> = files
                     .iter()
@@ -214,7 +530,10 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
                 let file_list = List::new(items)
                     .block(
                         Block::bordered()
-                            .title(format!("Files — {}", display_version)),
+                            .title(format!(
+                                "Files — {}",
+                                current_version
+                            )),
                     )
                     .highlight_symbol("> ");
 
@@ -224,28 +543,14 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
                     &mut state,
                 );
 
-                let content = if files.is_empty() {
-                    String::from("No files")
-                } else {
-                    fs::read_to_string(&files[selected])
-                        .unwrap_or_else(|_| {
-                            String::from("Could not read file")
-                        })
-                };
-
-                let title = files
-                    .get(selected)
-                    .and_then(|path| path.file_name())
-                    .map(|name| name.to_string_lossy().to_string())
-                    .unwrap_or_default();
-
-                let spans = load_spans(
-                    &document_dir,
-                    display_version,
-                    &title,
+                let text = highlight_spans(
+                    &content,
+                    &spans,
+                    &references,
+                    reference_index,
+                    show_spans,
+                    show_references,
                 );
-
-                let text = highlight_spans(&content, &spans);
 
                 let right_panel = Paragraph::new(text)
                     .block(
@@ -253,19 +558,51 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
                             .title(format!(
                                 "{} — {}",
                                 title,
-                                display_version
+                                current_version
                             )),
                     )
                     .wrap(Wrap { trim: false })
                     .scroll((scroll, 0));
 
-                frame.render_widget(right_panel, right);
-
-                let guide_text = Paragraph::new(
-                    " ↑↓ select file   j/k scroll   q quit ",
+                frame.render_widget(
+                    right_panel,
+                    right,
                 );
 
-                frame.render_widget(guide_text, guide);
+                if let Some(index) = reference_index {
+                    if let Some(reference) =
+                        references.get(index)
+                    {
+                        let reference_text = format!(
+                            " {}  →  {}:{}:{}    Enter: follow",
+                            reference.id,
+                            reference.to_document,
+                            reference.to_version,
+                            reference.to_span,
+                        );
+
+                        let panel =
+                            Paragraph::new(reference_text)
+                                .block(
+                                    Block::bordered()
+                                        .title("Reference"),
+                                );
+
+                        frame.render_widget(
+                            panel,
+                            reference_panel,
+                        );
+                    }
+                }
+
+                let guide_text = Paragraph::new(
+                    " ↑↓ files   j/k scroll   Tab refs   Enter follow   s spans   r refs   q quit ",
+                );
+
+                frame.render_widget(
+                    guide_text,
+                    guide,
+                );
             })?;
 
             if event::poll(
@@ -277,8 +614,12 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
 
                         KeyCode::Up => {
                             if !files.is_empty() {
-                                selected = selected.saturating_sub(1);
+                                selected =
+                                    selected.saturating_sub(1);
+
                                 scroll = 0;
+                                reference_index = None;
+
                                 state.select(Some(selected));
                             }
                         }
@@ -286,8 +627,12 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
                         KeyCode::Down => {
                             if !files.is_empty() {
                                 selected =
-                                    (selected + 1).min(files.len() - 1);
+                                    (selected + 1)
+                                        .min(files.len() - 1);
+
                                 scroll = 0;
+                                reference_index = None;
+
                                 state.select(Some(selected));
                             }
                         }
@@ -298,6 +643,119 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
 
                         KeyCode::Char('k') => {
                             scroll = scroll.saturating_sub(1);
+                        }
+
+                        KeyCode::Char('s') => {
+                            show_spans = !show_spans;
+                        }
+
+                        KeyCode::Char('r') => {
+                            show_references =
+                                !show_references;
+
+                            if !show_references {
+                                reference_index = None;
+                            }
+                        }
+
+                        KeyCode::Tab => {
+                            if !references.is_empty() {
+                                reference_index =
+                                    Some(match reference_index {
+                                        Some(index) => {
+                                            (index + 1)
+                                                % references.len()
+                                        }
+                                        None => 0,
+                                    });
+                            }
+                        }
+
+                        KeyCode::BackTab => {
+                            if !references.is_empty() {
+                                reference_index =
+                                    Some(match reference_index {
+                                        Some(0) | None => {
+                                            references.len() - 1
+                                        }
+                                        Some(index) => {
+                                            index - 1
+                                        }
+                                    });
+                            }
+                        }
+
+                        KeyCode::Enter => {
+                            if let Some(index) =
+                                reference_index
+                            {
+                                if let Some(reference) =
+                                    references.get(index)
+                                {
+                                    if let Some(file) =
+                                        target_file(
+                                            &lattice_dir,
+                                            &reference.to_document,
+                                            &reference.to_version,
+                                            &reference.to_span,
+                                        )
+                                    {
+                                        let target_dir =
+                                            lattice_dir
+                                                .join("documents")
+                                                .join(&reference.to_document);
+
+                                        let target_view =
+                                            get_view_dir(
+                                                &target_dir,
+                                                &reference.to_version,
+                                            );
+
+                                        if let Some(target_view) =
+                                            target_view
+                                        {
+                                            let target_files =
+                                                get_files(
+                                                    &target_view,
+                                                )?;
+
+                                            if let Some(target_index) =
+                                                target_files
+                                                    .iter()
+                                                    .position(|path| {
+                                                        path.file_name()
+                                                            .map(|name| {
+                                                                name.to_string_lossy()
+                                                                    == file
+                                                            })
+                                                            .unwrap_or(false)
+                                                    })
+                                            {
+                                                current_id =
+                                                    reference
+                                                        .to_document
+                                                        .clone();
+
+                                                current_version =
+                                                    reference
+                                                        .to_version
+                                                        .clone();
+
+                                                selected =
+                                                    target_index;
+
+                                                scroll = 0;
+                                                reference_index =
+                                                    None;
+
+                                                state.select(
+                                                    Some(selected),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         _ => {}
