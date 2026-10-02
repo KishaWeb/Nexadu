@@ -7,7 +7,7 @@ pub fn version(id: &str) {
     let home = dirs::home_dir().unwrap();
 
     let document_dir = home
-        .join(".lattice")
+        .join(".Nexadu")
         .join("documents")
         .join(id);
 
@@ -85,7 +85,7 @@ pub fn restore(id: &str, version: &str) {
     let home = dirs::home_dir().unwrap();
 
     let document_dir = home
-        .join(".lattice")
+        .join(".Nexadu")
         .join("documents")
         .join(id);
 
@@ -183,7 +183,7 @@ pub fn history(id: &str) {
     let home = dirs::home_dir().unwrap();
 
     let document_dir = home
-        .join(".lattice")
+        .join(".Nexadu")
         .join("documents")
         .join(id);
 
@@ -223,7 +223,7 @@ pub fn status(id: &str) {
     let home = dirs::home_dir().unwrap();
 
     let document_dir = home
-        .join(".lattice")
+        .join(".Nexadu")
         .join("documents")
         .join(id);
 

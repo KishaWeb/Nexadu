@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 pub fn create_span(id: &str, version: &str,file: &str, start: usize, end: usize) {
     let home = dirs::home_dir().unwrap();
 
-    let document_dir = home.join(".lattice").join("documents").join(id);
+    let document_dir = home.join(".Nexadu").join("documents").join(id);
 
     if !document_dir.is_dir() {
         println!("document not found: {}", id);
@@ -122,7 +122,7 @@ pub fn create_span(id: &str, version: &str,file: &str, start: usize, end: usize)
 pub fn remove_span(id: &str, span_id:&str){
     let home = dirs::home_dir().unwrap();
 
-    let document_dir = home.join(".lattice").join("documents").join(id);
+    let document_dir = home.join(".Nexadu").join("documents").join(id);
 
     if !document_dir.is_dir() {
         println!("document not found: {}", id);
@@ -170,7 +170,7 @@ pub fn show_span(
 ){
     let home = dirs::home_dir().unwrap();
 
-    let document_dir = home.join(".lattice").join("documents").join(id);
+    let document_dir = home.join(".Nexadu").join("documents").join(id);
 
     if !document_dir.is_dir() {
         println!("document not found: {}", id);
@@ -241,7 +241,7 @@ pub fn list_spans(id: &str, version_filter: Option<&str>) {
     let home = dirs::home_dir().unwrap();
 
     let document_dir = home
-        .join(".lattice")
+        .join(".Nexadu")
         .join("documents")
         .join(id);
 
@@ -378,7 +378,7 @@ pub fn gc(id: &str) {
     let home = dirs::home_dir().unwrap();
 
     let document_dir = home
-        .join(".lattice")
+        .join(".Nexadu")
         .join("documents")
         .join(id);
 

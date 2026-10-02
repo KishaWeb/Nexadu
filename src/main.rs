@@ -4,6 +4,7 @@ mod spans;
 mod version_control;
 mod tui;
 mod references;
+mod networking;
 
 use version_control::{history, restore, status, version};
 
@@ -18,7 +19,7 @@ fn main() {
 
     if args.len() < 3 {
         println!(
-            "usage: lattice <init|view|version|history|status|restore|span-create|span|spans-list|span-remove|gc|ref-create|ref|ref-list|ref-remove> <folder|id> [version|file|span|reference]"
+            "usage: Nexadu <init|view|version|history|status|restore|span-create|span|spans-list|span-remove|gc|ref-create|ref|ref-list|ref-remove> <folder|id> [version|file|span|reference]"
         );
         return;
     }
@@ -44,7 +45,7 @@ fn main() {
 
         "restore" => {
             if args.len() < 4 {
-                println!("usage: lattice restore <id> <version>");
+                println!("usage: Nexadu restore <id> <version>");
                 return;
             }
 
@@ -54,7 +55,7 @@ fn main() {
         "span-create" => {
             if args.len() < 7 {
                 println!(
-                    "usage: lattice span-create <id> <version|current> <file> <start> <end>"
+                    "usage: Nexadu span-create <id> <version|current> <file> <start> <end>"
                 );
                 return;
             }
@@ -86,7 +87,7 @@ fn main() {
         
         "span" => {
             if args.len() < 5 {
-                println!("usage: lattice span <id> <version> <span> [all]");
+                println!("usage: Nexadu span <id> <version> <span> [all]");
                 return;
             }
 
@@ -102,7 +103,7 @@ fn main() {
         
         "spans-list" => {
             if args.len() < 3{
-                println!("usage: lattice list_spans <id>")
+                println!("usage: Nexadu list_spans <id>")
             }else if args.len() == 3{
                 list_spans(&args[2], None)
             }else{
@@ -112,7 +113,7 @@ fn main() {
 
         "span-remove" => {
             if args.len() < 4 {
-                println!("usage: lattice span-remove <id> <span>");
+                println!("usage: Nexadu span-remove <id> <span>");
                 return;
             }
 
@@ -121,7 +122,7 @@ fn main() {
 
         "gc" => {
             if args.len() < 3 {
-                println!("usage: lattice gc <id>")
+                println!("usage: Nexadu gc <id>")
             }
 
             gc(&args[2]);
@@ -130,7 +131,7 @@ fn main() {
         "ref-create" => {
             if args.len() < 8 {
                 println!(
-                    "usage: lattice ref-create <from_document> <from_version> <from_span> <to_document> <to_version> <to_span>"
+                    "usage: Nexadu ref-create <from_document> <from_version> <from_span> <to_document> <to_version> <to_span>"
                 );
                 return;
             }
@@ -147,7 +148,7 @@ fn main() {
         
         "ref" => {
             if args.len() < 4 {
-                println!("usage: lattice ref <id> <reference>");
+                println!("usage: Nexadu ref <id> <reference>");
                 return;
             }
 
@@ -156,7 +157,7 @@ fn main() {
         
         "ref-list" => {
             if args.len() < 3 {
-                println!("usage: lattice ref-list <id>");
+                println!("usage: Nexadu ref-list <id>");
                 return;
             }
 
@@ -164,11 +165,23 @@ fn main() {
         }
         "ref-remove" => {
             if args.len() < 3 {
-                println!("usage: lattice ref-remove <reference>");
+                println!("usage: Nexadu ref-remove <reference>");
                 return;
             }
 
             remove_reference(&args[2]);
+        }
+
+"serve" => {
+        let address = if args.len() >= 3 {
+                &args[2]
+            } else {
+                "127.0.0.1:9000"
+            };
+
+            if let Err(error) = networking::serve(address) {
+                eprintln!("server error: {}", error);
+            }
         }
         
         _ => println!("unknown command: {}", args[1]),
@@ -182,7 +195,7 @@ fn init(folder: &Path) {
     }
 
     let home = dirs::home_dir().unwrap();
-    let documents = home.join(".lattice").join("documents");
+    let documents = home.join(".Nexadu").join("documents");
 
     fs::create_dir_all(&documents).unwrap();
 
@@ -206,7 +219,7 @@ fn init(folder: &Path) {
 fn view(id: &str, version: Option<&str>) {
     let home = dirs::home_dir().unwrap();
 
-    let document_dir = home.join(".lattice").join("documents").join(id);
+    let document_dir = home.join(".Nexadu").join("documents").join(id);
 
     if !document_dir.is_dir() {
         println!("document not found: {}", id);

@@ -9,13 +9,13 @@ pub fn create_reference(
     to_span: &str,
 ) {
     let home = dirs::home_dir().unwrap();
-    let lattice_dir = home.join(".lattice");
-    let references_dir = lattice_dir.join("references");
+    let Nexadu_dir = home.join(".Nexadu");
+    let references_dir = Nexadu_dir.join("references");
 
     fs::create_dir_all(&references_dir).unwrap();
 
     for document in [from_document, to_document] {
-        let document_dir = lattice_dir.join("documents").join(document);
+        let document_dir = Nexadu_dir.join("documents").join(document);
 
         if !document_dir.is_dir() {
             println!("document not found: {}", document);
@@ -24,7 +24,7 @@ pub fn create_reference(
     }
 
     for (document, span) in [(from_document, from_span), (to_document, to_span)] {
-        let span_path = lattice_dir
+        let span_path = Nexadu_dir
             .join("documents")
             .join(document)
             .join("spans")
@@ -84,9 +84,9 @@ pub fn create_reference(
 
 pub fn show_reference(_id: &str, reference_id: &str) {
     let home = dirs::home_dir().unwrap();
-    let lattice_dir = home.join(".lattice");
+    let Nexadu_dir = home.join(".Nexadu");
 
-    let reference_path = lattice_dir
+    let reference_path = Nexadu_dir
         .join("references")
         .join(reference_id);
 
@@ -142,7 +142,7 @@ pub fn show_reference(_id: &str, reference_id: &str) {
         ("From", &from_document, &from_version, &from_span),
         ("To", &to_document, &to_version, &to_span),
     ] {
-        let span_path = lattice_dir
+        let span_path = Nexadu_dir
             .join("documents")
             .join(document)
             .join("spans")
@@ -189,7 +189,7 @@ pub fn show_reference(_id: &str, reference_id: &str) {
             continue;
         }
 
-        let object_path = lattice_dir
+        let object_path = Nexadu_dir
             .join("documents")
             .join(document)
             .join("objects")
@@ -222,7 +222,7 @@ pub fn list_references(id: &str) {
     let home = dirs::home_dir().unwrap();
 
     let references_dir = home
-        .join(".lattice")
+        .join(".Nexadu")
         .join("references");
 
     let entries = match fs::read_dir(&references_dir) {
@@ -351,7 +351,7 @@ pub fn remove_reference(reference_id: &str) {
     let home = dirs::home_dir().unwrap();
 
     let reference_path = home
-        .join(".lattice")
+        .join(".Nexadu")
         .join("references")
         .join(reference_id);
 
