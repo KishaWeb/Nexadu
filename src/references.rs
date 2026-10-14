@@ -9,13 +9,13 @@ pub fn create_reference(
     to_span: &str,
 ) {
     let home = dirs::home_dir().unwrap();
-    let Nexadu_dir = home.join(".Nexadu");
-    let references_dir = Nexadu_dir.join("references");
+    let nexadu_dir = home.join(".Nexadu");
+    let references_dir = nexadu_dir.join("references");
 
     fs::create_dir_all(&references_dir).unwrap();
 
     for document in [from_document, to_document] {
-        let document_dir = Nexadu_dir.join("documents").join(document);
+        let document_dir = nexadu_dir.join("documents").join(document);
 
         if !document_dir.is_dir() {
             println!("document not found: {}", document);
@@ -24,7 +24,7 @@ pub fn create_reference(
     }
 
     for (document, span) in [(from_document, from_span), (to_document, to_span)] {
-        let span_path = Nexadu_dir
+        let span_path = nexadu_dir
             .join("documents")
             .join(document)
             .join("spans")
@@ -84,9 +84,9 @@ pub fn create_reference(
 
 pub fn show_reference(_id: &str, reference_id: &str) {
     let home = dirs::home_dir().unwrap();
-    let Nexadu_dir = home.join(".Nexadu");
+    let nexadu_dir = home.join(".Nexadu");
 
-    let reference_path = Nexadu_dir
+    let reference_path = nexadu_dir
         .join("references")
         .join(reference_id);
 
@@ -142,7 +142,7 @@ pub fn show_reference(_id: &str, reference_id: &str) {
         ("From", &from_document, &from_version, &from_span),
         ("To", &to_document, &to_version, &to_span),
     ] {
-        let span_path = Nexadu_dir
+        let span_path = nexadu_dir
             .join("documents")
             .join(document)
             .join("spans")
@@ -189,7 +189,7 @@ pub fn show_reference(_id: &str, reference_id: &str) {
             continue;
         }
 
-        let object_path = Nexadu_dir
+        let object_path = nexadu_dir
             .join("documents")
             .join(document)
             .join("objects")

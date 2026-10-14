@@ -379,12 +379,12 @@ fn get_files(view_dir: &Path) -> std::io::Result<Vec<PathBuf>> {
 }
 
 fn target_file(
-    Nexadu_dir: &Path,
+    nexadu_dir: &Path,
     document: &str,
     version: &str,
     span_id: &str,
 ) -> Option<String> {
-    let span_path = Nexadu_dir
+    let span_path = nexadu_dir
         .join("documents")
         .join(document)
         .join("spans")
@@ -412,7 +412,7 @@ fn target_file(
 
 pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
     let home = dirs::home_dir().unwrap();
-    let Nexadu_dir = home.join(".Nexadu");
+    let nexadu_dir = home.join(".Nexadu");
 
     let mut current_id = id.to_string();
     let mut current_version =
@@ -430,7 +430,7 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
 
     ratatui::run(|terminal| {
         loop {
-            let document_dir = Nexadu_dir
+            let document_dir = nexadu_dir
                 .join("documents")
                 .join(&current_id);
 
@@ -694,14 +694,14 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
                                 {
                                     if let Some(file) =
                                         target_file(
-                                            &Nexadu_dir,
+                                            &nexadu_dir,
                                             &reference.to_document,
                                             &reference.to_version,
                                             &reference.to_span,
                                         )
                                     {
                                         let target_dir =
-                                            Nexadu_dir
+                                            nexadu_dir
                                                 .join("documents")
                                                 .join(&reference.to_document);
 

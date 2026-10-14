@@ -87,7 +87,7 @@ fn document_path(id: &str) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
 
     let path = home
-        .join(".lattice")
+        .join(".Nexadu")
         .join("documents")
         .join(id);
 
