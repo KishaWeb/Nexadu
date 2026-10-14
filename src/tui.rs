@@ -331,6 +331,54 @@ fn highlight_spans(
     Text::from(lines)
 }
 
+fn render_markdown(content: &str) -> Text<'static> {
+    let mut lines = Vec::new();
+    let mut in_code_block = false;
+
+    for raw_line in content.lines() {
+        let trimmed = raw_line.trim_start();
+
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+
+        if in_code_block {
+            lines.push(Line::from(Span::styled(
+                format!("  {}", raw_line),
+                Style::default().add_modifier(Modifier::DIM),
+            )));
+            continue;
+        }
+
+        let (display, style) = if let Some(text) = trimmed.strip_prefix("### ") {
+            (text.to_string(), Style::default().add_modifier(Modifier::BOLD))
+        } else if let Some(text) = trimmed.strip_prefix("## ") {
+            (text.to_string(), Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED))
+        } else if let Some(text) = trimmed.strip_prefix("# ") {
+            (text.to_string(), Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED))
+        } else if let Some(text) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
+            (format!("• {}", text), Style::default())
+        } else if let Some(text) = trimmed.strip_prefix("> ") {
+            (format!("│ {}", text), Style::default().add_modifier(Modifier::ITALIC))
+        } else {
+            (raw_line.to_string(), Style::default())
+        };
+
+        lines.push(if style == Style::default() {
+            Line::from(display)
+        } else {
+            Line::from(Span::styled(display, style))
+        });
+    }
+
+    if content.is_empty() {
+        lines.push(Line::from(""));
+    }
+
+    Text::from(lines)
+}
+
 fn get_view_dir(
     document_dir: &Path,
     version: &str,
@@ -364,19 +412,25 @@ fn get_view_dir(
 }
 
 fn get_files(view_dir: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
+    fn collect(directory: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
+        let mut entries = fs::read_dir(directory)?
+            .collect::<Result<Vec<_>, _>>()?;
+        entries.sort_by_key(|entry| entry.file_name());
 
-    for entry in fs::read_dir(view_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-
-        if path.is_file() {
-            files.push(path);
+        for entry in entries {
+            let path = entry.path();
+            if path.is_dir() {
+                collect(&path, files)?;
+            } else if path.is_file() {
+                files.push(path);
+            }
         }
+        Ok(())
     }
 
+    let mut files = Vec::new();
+    collect(view_dir, &mut files)?;
     files.sort();
-
     Ok(files)
 }
 
@@ -463,8 +517,8 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
 
             let title = files
                 .get(selected)
-                .and_then(|path| path.file_name())
-                .map(|name| name.to_string_lossy().to_string())
+                .and_then(|path| path.strip_prefix(&view_dir).ok())
+                .map(|path| path.to_string_lossy().replace('\\', "/"))
                 .unwrap_or_default();
 
             let content = if files.is_empty() {
@@ -520,12 +574,8 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
                 let items: Vec<ListItem> = files
                     .iter()
                     .map(|path| {
-                        ListItem::new(
-                            path.file_name()
-                                .unwrap()
-                                .to_string_lossy()
-                                .to_string(),
-                        )
+                        let relative = path.strip_prefix(&view_dir).unwrap_or(path);
+                        ListItem::new(relative.to_string_lossy().replace('\\', "/"))
                     })
                     .collect();
 
@@ -545,21 +595,27 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
                     &mut state,
                 );
 
-                let text = highlight_spans(
-                    &content,
-                    &spans,
-                    &references,
-                    reference_index,
-                    show_spans,
-                    show_references,
-                );
+                let is_markdown = title.to_ascii_lowercase().ends_with(".md");
+                let text = if is_markdown {
+                    render_markdown(&content)
+                } else {
+                    highlight_spans(
+                        &content,
+                        &spans,
+                        &references,
+                        reference_index,
+                        show_spans,
+                        show_references,
+                    )
+                };
 
                 let right_panel = Paragraph::new(text)
                     .block(
                         Block::bordered()
                             .title(format!(
-                                "{} — {}",
+                                "{}{} — {}",
                                 title,
+                                if is_markdown { " [Markdown]" } else { "" },
                                 current_version
                             )),
                     )
@@ -725,10 +781,9 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
                                                 target_files
                                                     .iter()
                                                     .position(|path| {
-                                                        path.file_name()
-                                                            .map(|name| {
-                                                                name.to_string_lossy()
-                                                                    == file
+                                                        path.strip_prefix(&target_view)
+                                                            .map(|relative| {
+                                                                relative.to_string_lossy().replace('\\', "/") == file
                                                             })
                                                             .unwrap_or(false)
                                                     })
