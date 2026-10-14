@@ -9,7 +9,7 @@ use version_control::{history, restore, status, version};
 
 use spans::{create_span, show_span,remove_span,gc, list_spans};
 
-use tui::tui;
+use tui::{tui, tui_remote};
 
 use references::{create_reference, show_reference,list_references,remove_reference};
 
@@ -29,6 +29,20 @@ fn main() {
         "view" => {
             if args.len() == 3 {
                 view(&args[2], None);
+            } else if args.len() >= 5 && args[3] == "tui" && args[4] == "--remote" {
+                let address = args.get(5).map(String::as_str).unwrap_or("127.0.0.1:9000");
+                if let Err(error) = tui_remote(&args[2], None, address) {
+                    eprintln!("remote TUI error: {}", error);
+                }
+            } else if args.len() >= 6 && args[4] == "tui" && args[5] == "--remote" {
+                let address = args.get(6).map(String::as_str).unwrap_or("127.0.0.1:9000");
+                if let Err(error) = tui_remote(&args[2], Some(&args[3]), address) {
+                    eprintln!("remote TUI error: {}", error);
+                }
+            } else if args.len() >= 4 && args[3] == "tui" {
+                let _ = tui(&args[2], None);
+            } else if args.len() >= 5 && args[4] == "tui" {
+                let _ = tui(&args[2], Some(&args[3]));
             } else if args.len() >= 4 && args[3] == "--remote" {
                 let address = args.get(4).map(String::as_str).unwrap_or("127.0.0.1:9000");
                 let request = format!("GET {}", args[2]);
@@ -41,10 +55,6 @@ fn main() {
                 if let Err(error) = send_request(address, &request) {
                     eprintln!("client error: {}", error);
                 }
-            } else if args.len() >= 4 && args[3] == "tui" {
-                let _ = tui(&args[2], None);
-            } else if args.len() >= 5 && args[4] == "tui" {
-                let _ = tui(&args[2], Some(&args[3]));
             } else {
                 view(&args[2], Some(&args[3]));
             }
@@ -388,6 +398,17 @@ fn handle_request(request: &str) -> String {
             _ => "ERROR invalid GET syntax\n".to_string(),
         },
 
+        "LIST" => match args.len() {
+            2 => list_remote_files(args[1], "current"),
+            3 => list_remote_files(args[1], args[2]),
+            _ => "ERROR invalid LIST syntax\n".to_string(),
+        },
+
+        "READ" => match args.len() {
+            4 => read_remote_file(args[1], args[2], args[3]),
+            _ => "ERROR invalid READ syntax\n".to_string(),
+        },
+
         _ => "ERROR unknown request\n".to_string(),
     }
 }
@@ -404,6 +425,87 @@ fn document_path(id: &str) -> Option<PathBuf> {
         Some(path)
     } else {
         None
+    }
+}
+
+
+fn resolve_view_dir(document_dir: &Path, version: &str) -> Option<PathBuf> {
+    if version == "current" {
+        let metadata = fs::read_to_string(document_dir.join("metadata")).ok()?;
+        let path = metadata
+            .lines()
+            .find_map(|line| line.strip_prefix("path="))?;
+        let path = PathBuf::from(path);
+        if path.is_dir() {
+            Some(path)
+        } else {
+            None
+        }
+    } else {
+        let path = document_dir.join("versions").join(version);
+        if path.is_dir() {
+            Some(path)
+        } else {
+            None
+        }
+    }
+}
+
+fn list_remote_files(id: &str, version: &str) -> String {
+    let Some(document_dir) = document_path(id) else {
+        return format!("ERROR document not found: {}\n", id);
+    };
+
+    let Some(view_dir) = resolve_view_dir(&document_dir, version) else {
+        return format!("ERROR version not found: {}\n", version);
+    };
+
+    let mut files = match fs::read_dir(view_dir) {
+        Ok(entries) => entries
+            .flatten()
+            .filter_map(|entry| {
+                let path = entry.path();
+                if path.is_file() {
+                    path.file_name().map(|name| name.to_string_lossy().to_string())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>(),
+        Err(error) => return format!("ERROR could not list files: {}\n", error),
+    };
+
+    files.sort();
+    if files.is_empty() {
+        return String::new();
+    }
+    format!("{}\n", files.join("\n"))
+}
+
+fn read_remote_file(id: &str, version: &str, file: &str) -> String {
+    let requested_path = Path::new(file);
+    if requested_path.file_name().and_then(|name| name.to_str()) != Some(file)
+        || requested_path.components().count() != 1
+    {
+        return "ERROR invalid filename\n".to_string();
+    }
+
+    let Some(document_dir) = document_path(id) else {
+        return format!("ERROR document not found: {}\n", id);
+    };
+
+    let Some(view_dir) = resolve_view_dir(&document_dir, version) else {
+        return format!("ERROR version not found: {}\n", version);
+    };
+
+    let file_path = view_dir.join(file);
+    if !file_path.is_file() {
+        return format!("ERROR file not found: {}\n", file);
+    }
+
+    match fs::read_to_string(file_path) {
+        Ok(contents) => contents,
+        Err(error) => format!("ERROR could not read file: {}\n", error),
     }
 }
 

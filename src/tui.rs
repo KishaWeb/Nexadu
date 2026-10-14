@@ -7,6 +7,8 @@ use ratatui::{
 };
 use std::{
     fs,
+    io::{self, Read, Write},
+    net::TcpStream,
     path::{Path, PathBuf},
 };
 
@@ -758,6 +760,143 @@ pub fn tui(id: &str, version: Option<&str>) -> std::io::Result<()> {
                             }
                         }
 
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    })
+}
+
+fn remote_request(address: &str, request: &str) -> io::Result<String> {
+    let mut stream = TcpStream::connect(address)?;
+    stream.write_all(format!("{}\n", request).as_bytes())?;
+    stream.shutdown(std::net::Shutdown::Write)?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response)?;
+    Ok(response)
+}
+
+pub fn tui_remote(
+    id: &str,
+    version: Option<&str>,
+    address: &str,
+) -> io::Result<()> {
+    let current_version = version.unwrap_or("current").to_string();
+    let response = remote_request(
+        address,
+        &format!("LIST {} {}", id, current_version),
+    )?;
+
+    if response.starts_with("ERROR ") {
+        return Err(io::Error::new(io::ErrorKind::Other, response.trim().to_string()));
+    }
+
+    let files: Vec<String> = response
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect();
+
+    let mut selected = 0usize;
+    let mut scroll = 0u16;
+    let mut loaded_file: Option<String> = None;
+    let mut content = String::new();
+    let mut state = ListState::default();
+
+    ratatui::run(|terminal| {
+        loop {
+            if files.is_empty() {
+                state.select(None);
+                loaded_file = None;
+                content = String::from("No files");
+            } else {
+                selected = selected.min(files.len() - 1);
+                state.select(Some(selected));
+
+                let file = files[selected].clone();
+                if loaded_file.as_deref() != Some(file.as_str()) {
+                    content = match remote_request(
+                        address,
+                        &format!("READ {} {} {}", id, current_version, file),
+                    ) {
+                        Ok(response) if response.starts_with("ERROR ") => response,
+                        Ok(response) => response,
+                        Err(error) => format!("Remote error: {}", error),
+                    };
+                    loaded_file = Some(file);
+                    scroll = 0;
+                }
+            }
+
+            terminal.draw(|frame| {
+                let [main, guide] = Layout::vertical([
+                    Constraint::Min(1),
+                    Constraint::Length(1),
+                ])
+                .areas(frame.area());
+
+                let [left, right] = Layout::horizontal([
+                    Constraint::Percentage(25),
+                    Constraint::Percentage(75),
+                ])
+                .areas(main);
+
+                let items: Vec<ListItem> = files
+                    .iter()
+                    .map(|file| ListItem::new(file.clone()))
+                    .collect();
+
+                let file_list = List::new(items)
+                    .block(
+                        Block::bordered().title(format!(
+                            "Remote files — {}:{}",
+                            id, current_version
+                        )),
+                    )
+                    .highlight_symbol("> ");
+
+                frame.render_stateful_widget(file_list, left, &mut state);
+
+                let right_panel = Paragraph::new(content.as_str())
+                    .block(
+                        Block::bordered().title(
+                            files.get(selected).cloned().unwrap_or_else(|| "Content".to_string()),
+                        ),
+                    )
+                    .wrap(Wrap { trim: false })
+                    .scroll((scroll, 0));
+
+                frame.render_widget(right_panel, right);
+
+                let guide_text = Paragraph::new(
+                    " ↑↓ files   j/k scroll   q quit ",
+                );
+                frame.render_widget(guide_text, guide);
+            })?;
+
+            if event::poll(std::time::Duration::from_millis(100))? {
+                if let Event::Key(key) = event::read()? {
+                    match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Up => {
+                            if !files.is_empty() {
+                                selected = selected.saturating_sub(1);
+                            }
+                        }
+                        KeyCode::Down => {
+                            if !files.is_empty() {
+                                selected = (selected + 1).min(files.len() - 1);
+                            }
+                        }
+                        KeyCode::Char('j') => {
+                            scroll = scroll.saturating_add(1);
+                        }
+                        KeyCode::Char('k') => {
+                            scroll = scroll.saturating_sub(1);
+                        }
                         _ => {}
                     }
                 }
