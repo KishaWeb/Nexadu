@@ -3,15 +3,6 @@
 version = 4
 
 [[package]]
-name = "Lattice"
-version = "0.1.0"
-dependencies = [
- "crossterm",
- "dirs",
- "ratatui",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -698,6 +689,15 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys",
+]
+
+[[package]]
+name = "nexadu"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
+ "dirs",
+ "ratatui",
 ]
 
 [[package]]
